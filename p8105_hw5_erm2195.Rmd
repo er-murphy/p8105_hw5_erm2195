@@ -5,11 +5,10 @@ date: "2023-11-13"
 ---
 
 ## Library and Theme Setup
-Loading the `tidyverse`, `broom`, and `viridis` libraries for later use.
+Loading the `tidyverse` and `viridis` libraries for later use.
 
 ```{r load_libraries}
 library(tidyverse)
-library(broom)
 library(viridis)
 ```
 
@@ -35,11 +34,12 @@ scale_fill_discrete = scale_fill_viridis_d
 ```
 
 # Problem 1
+
+## Importing and Cleaning Data
+
 ```{r}
 homicides = 
   read_csv("Data/homicide-data.csv", na = c("", "NA", "Unknown")) |> 
-  as_tibble() |> 
-  janitor::clean_names() |> 
   mutate(
     city_state = str_c(str_to_title(city), ", ", str_to_upper(state)),
     resolution = case_when(
@@ -53,6 +53,10 @@ homicides =
 
 The `homicides` dataframe has `r nrow(homicides)` observations, with variables including victim name, race, and age; the date of the homicide report; and the city and state in which the homicide was located.
 
+## Grouping by Location
+
+Now grouping within cities and summarizing to produce the total number of homicides and the number that are solved per `city_state`. 
+
 ```{r}
 
 homicides_by_city = 
@@ -65,21 +69,53 @@ homicides_by_city =
 
 ```
 
+## Estimating the Proportion of Unsolved Homicides in Baltimore
+
+For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
+
 ```{r}
 
 unsolved_baltimore = 
   prop.test(
     x = filter(homicides_by_city, city_state == "Baltimore, MD") |> pull(num_unsolved),
-    n = filter(homicides_by_city, city_state == "Baltimore, MD") |>pull(num_homicides)
-  ) |> 
-  broom::tidy(unsolved_baltimore) |> 
-  knitr::kable()
+    n = filter(homicides_by_city, city_state == "Baltimore, MD") |> pull(num_homicides))
+
+broom::tidy(unsolved_baltimore) |>  
+  knitr::kable(digits = 3)
 
 ```
 
+## Estimating the Proportion of Unsolved Homicides in All Cities
 
-For the city of Baltimore, MD, use the prop.test function to estimate the proportion of homicides that are unsolved; save the output of prop.test as an R object, apply the broom::tidy to this object and pull the estimated proportion and confidence intervals from the resulting tidy dataframe.
+Can use functions in the `purrr` package to obtain estimates and CIs for the proportion of unsolved homicides in each city in my dataset.
 
+```{r}
+homicide_results = 
+  homicides_by_city |> 
+  mutate(
+    prop_tests = map2(num_unsolved, num_homicides, \(x, y) prop.test(x = x, n = y)),
+    tidy_tests = map(prop_tests, broom::tidy)) |> 
+  select(-prop_tests) |> 
+  unnest(tidy_tests) |> 
+  select(city_state, estimate, conf.low, conf.high) |> 
+  mutate(city_state = fct_reorder(city_state, estimate))
+
+```
+
+## Plotting the Proportion of Unsolved Homicides Per City
+
+Finally, a plot showing the estimate (and CI) of the proportion of unsolved homicides per city:
+
+```{r}
+homicide_results |> 
+  mutate(
+    city_state = fct_reorder(city_state, estimate)
+  ) |>  
+  ggplot(aes(x = city_state, y = estimate)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
 
 # Problem 2
 
@@ -119,7 +155,6 @@ read_participant = function(name) {
   
 ```
 
-
 ## Combining All Participants Into a Dataframe
 
 With my function to read in the csv files created, I can now move on to combining all participants into a single dataframe. First, I'm creating this single dataframe with the name `all_participants`. One column holds all of the participant ids pulled from the list created above, modified to remove to the file extension. After running each participants through the `read_participant` function and saving the result to a new variable called `summary`, I unnest the summary dataframe for each participant. 
@@ -137,7 +172,6 @@ all_participants =
   select(subject_ID, arm, everything()) |> 
   unnest(cols = "summary")
 ```
-
 
 ## Plotting Observations by Group
 
@@ -181,7 +215,6 @@ sim_power = function(n, mu, sigma) {
 }
 ```
 
-
 ## Generating 5000 Datasets Per Mu From 0 to 6
 
 Now, using the above function, we will generate 5,000 separate samples (datasets) for each mu ranging from 0 to 6. Each observation contains information about the true mu used for the sample, iteration number, and resulting mu_hat, p-value of the t-test, and whether the null is rejected for that sample. This combined dataset includes 35,000 observations (5,000 for each of the 7 mu values).
@@ -198,7 +231,6 @@ sim_power_results =
   unnest(t_test)
 ```
 
-
 ## Plotting the Proportion of Null Rejections by Mu Value
 
 Making a plot showing the proportion of times the null was rejected (the power of the test) on the y axis and the true value of μ on the x axis.
@@ -213,7 +245,7 @@ sim_power_results |>
   ggplot(aes(x = mu, y = power)) + 
   geom_line(alpha = .5) +
   labs(
-    title = "Proportion of Samples Rejecting the Null at Different MU Values",
+    title = "Proportion of Samples Rejecting the Null at Different μ Values",
     x = "True μ",
     y = "Porportion of Samples Rejecting the Null (Power)"
   )
@@ -261,8 +293,6 @@ sim_power_results |>
 
 ```
 
-The sample average of μ̂ across tests for which the null is rejected is approximately equal to the true value of μ. This is because tests for which the null is rejected are those with a μ̂ value that is significantly different from 0. As the true μ from which the sample is generated gets further and further away from null, the samples with a μ̂ that most closely approximates that true μ are the ones that are more likely to reject the null value. So, once the true μ value deviates from 0, our filtering essentially means that we only include samples with a μ̂ that approximates the true μ, and the average of these  μ̂ is similarly close to μ.
-
-
+The sample average of μ̂ across tests for which the null is rejected is approximately equal to the true value of μ. This is because tests for which the null is rejected are those with a μ̂ value that is significantly different from 0. As the true μ from which the sample is generated gets further and further away from null, the samples with a μ̂ that most closely approximates that true μ are the ones that are more likely to reject the null value. So, once the true μ value deviates from 0, our filtering essentially means that we only include samples with a μ̂ that approximates the true μ, resulting in a similarly approximate mean μ̂.
 
 
